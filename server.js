@@ -15,12 +15,8 @@ const path       = require('path');
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
-// Путь к бинарнику yt-dlp (скачивается автоматически через npm install)
-const YT_DLP_BIN = path.join(
-  path.dirname(require.resolve('yt-dlp-exec/package.json')),
-  'bin',
-  'yt-dlp'
-);
+// yt-dlp устанавливается через pip3 в build command и доступен в PATH
+const YT_DLP_BIN = 'yt-dlp';
 
 // ─────────────────────────────────────────────
 // Middleware
