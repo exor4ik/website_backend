@@ -1,14 +1,7 @@
 'use strict';
 
-/**
- * Запускается в GitHub Actions.
- * Логинится в Google через Playwright, забирает cookies,
- * записывает в $GITHUB_ENV как YT_COOKIES.
- */
-
 const { chromium } = require('playwright');
 const fs           = require('fs');
-const os           = require('os');
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -48,7 +41,7 @@ async function main() {
   const page = await context.newPage();
 
   try {
-    // ── Шаг 1: Email ────────────────────────────
+    // ── Шаг 1: Email ──────────────────────────────
     console.log('📧 Вводим email...');
     await page.goto('https://accounts.google.com/signin/v2/identifier?hl=en', {
       waitUntil: 'networkidle',
@@ -61,27 +54,38 @@ async function main() {
     await sleep(400);
     await page.keyboard.press('Enter');
 
-    // ── Шаг 2: Пароль ───────────────────────────
+    // ── Шаг 2: Пароль ─────────────────────────────
+    // Google рендерит скрытый input[type="password"] — ищем видимый через jsname
     console.log('🔑 Ждём поле пароля...');
-    await page.waitForSelector('input[type="password"]', {
-      state: 'visible',
-      timeout: 20_000,
-    });
-    await sleep(600);
-    await page.fill('input[type="password"]', password);
+
+    // Ждём появления любого из известных селекторов видимого пароля
+    const passwordLocator = page.locator([
+      'input[name="Passwd"]:not([aria-hidden="true"])',
+      'input[type="password"]:not([aria-hidden="true"])',
+      'input[jsname="YPqjbf"]',
+    ].join(', ')).first();
+
+    await passwordLocator.waitFor({ state: 'visible', timeout: 20_000 });
+    await sleep(500);
+    await passwordLocator.fill(password);
     await sleep(400);
     await page.keyboard.press('Enter');
 
-    // ── Шаг 3: Ждём завершения входа ────────────
+    // ── Шаг 3: Ждём завершения входа ──────────────
     console.log('⏳ Ждём завершения входа...');
-    await page.waitForURL(url => !url.includes('accounts.google.com/signin'), {
-      timeout: 20_000,
-    });
+    await page.waitForFunction(
+      () => !window.location.href.includes('accounts.google.com/signin'),
+      { timeout: 20_000 }
+    );
 
     const finalUrl = page.url();
     console.log(`✅ Вход выполнен, URL: ${finalUrl}`);
 
-    // ── Шаг 4: YouTube ──────────────────────────
+    if (finalUrl.includes('challenge') || finalUrl.includes('rejected')) {
+      throw new Error(`Требуется дополнительная проверка. URL: ${finalUrl}`);
+    }
+
+    // ── Шаг 4: YouTube ────────────────────────────
     console.log('▶️  Переходим на YouTube...');
     await page.goto('https://www.youtube.com', {
       waitUntil: 'networkidle',
@@ -89,7 +93,7 @@ async function main() {
     });
     await sleep(2_000);
 
-    // ── Шаг 5: Собираем cookies ─────────────────
+    // ── Шаг 5: Cookies ────────────────────────────
     const cookies = await context.cookies([
       'https://www.youtube.com',
       'https://accounts.google.com',
@@ -100,28 +104,20 @@ async function main() {
       throw new Error(`Слишком мало cookies: ${cookies.length}`);
     }
 
-    const netscape = toNetscapeFormat(cookies);
-
-    // ── Шаг 6: Пишем в GITHUB_ENV ───────────────
-    // Многострочное значение через delimiter
+    const netscape  = toNetscapeFormat(cookies);
     const delimiter = `EOF_${Date.now()}`;
     const envFile   = process.env.GITHUB_ENV;
 
-    if (!envFile) {
-      // Локальный запуск — просто выводим
-      console.log('\n--- COOKIES ---\n', netscape.slice(0, 200), '\n...');
-    } else {
+    if (envFile) {
       fs.appendFileSync(envFile, `YT_COOKIES<<${delimiter}\n${netscape}\n${delimiter}\n`);
       console.log('✅ YT_COOKIES записан в GITHUB_ENV');
+    } else {
+      console.log('✅ Cookies получены (локальный запуск)');
     }
 
   } catch (err) {
-    // Скриншот для диагностики
-    const shot = `/tmp/debug_${Date.now()}.png`;
-    await page.screenshot({ path: shot, fullPage: true }).catch(() => {});
+    await page.screenshot({ path: `/tmp/debug_${Date.now()}.png`, fullPage: true }).catch(() => {});
     console.error(`❌ Ошибка: ${err.message}`);
-    console.error(`   Скриншот: ${shot} (артефакт экшена)`);
-
     await browser.close();
     process.exit(1);
   }
