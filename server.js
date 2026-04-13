@@ -4,20 +4,25 @@ const express   = require('express');
 const cors      = require('cors');
 const { spawn } = require('child_process');
 const rateLimit = require('express-rate-limit');
-
-const {
-  startCookieRefresh,
-  getCookiesFile,
-  getRefreshStatus,
-  refreshCookies,
-} = require('./cookies-refresh');
+const fs        = require('fs');
+const os        = require('os');
+const path      = require('path');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
 app.set('trust proxy', 1);
 
-const YT_DLP_BIN = 'yt-dlp';
+const YT_DLP_BIN   = 'yt-dlp';
+const COOKIES_FILE = path.join(os.tmpdir(), 'yt_cookies.txt');
+
+// Загружаем cookies из env при старте
+if (process.env.YT_COOKIES) {
+  fs.writeFileSync(COOKIES_FILE, process.env.YT_COOKIES, 'utf8');
+  console.log('✅ Cookies загружены из YT_COOKIES');
+} else {
+  console.warn('⚠️  YT_COOKIES не задан');
+}
 
 // ─────────────────────────────────────────────
 // Middleware
@@ -62,8 +67,7 @@ function getFormatParams(mode) {
 }
 
 function cookiesArgs() {
-  const f = getCookiesFile();
-  return f ? ['--cookies', f] : [];
+  return fs.existsSync(COOKIES_FILE) ? ['--cookies', COOKIES_FILE] : [];
 }
 
 function ytDlpJson(url) {
@@ -84,35 +88,17 @@ function ytDlpJson(url) {
 }
 
 // ─────────────────────────────────────────────
-// GET /health
+// Routes
 // ─────────────────────────────────────────────
 
 app.get('/health', (_req, res) => {
   res.json({
-    status:    'ok',
-    timestamp: Date.now(),
-    uptime:    Math.floor(process.uptime()),
-    cookies:   getRefreshStatus(),
+    status:      'ok',
+    timestamp:   Date.now(),
+    uptime:      Math.floor(process.uptime()),
+    cookies_set: fs.existsSync(COOKIES_FILE),
   });
 });
-
-// ─────────────────────────────────────────────
-// POST /api/cookies/refresh  — ручной запуск обновления
-// Защищён простым токеном
-// ─────────────────────────────────────────────
-
-app.post('/api/cookies/refresh', async (req, res) => {
-  const token = req.headers['x-admin-token'];
-  if (!token || token !== process.env.ADMIN_TOKEN) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-  const ok = await refreshCookies();
-  res.json({ ok, status: getRefreshStatus() });
-});
-
-// ─────────────────────────────────────────────
-// POST /api/info
-// ─────────────────────────────────────────────
 
 app.post('/api/info', async (req, res) => {
   const { url } = req.body;
@@ -127,10 +113,6 @@ app.post('/api/info', async (req, res) => {
     res.status(400).json({ error: 'Не удалось получить информацию о видео' });
   }
 });
-
-// ─────────────────────────────────────────────
-// GET /api/download
-// ─────────────────────────────────────────────
 
 app.get('/api/download', async (req, res) => {
   const { url: rawUrl, mode = 'video' } = req.query;
@@ -171,17 +153,4 @@ app.get('/api/download', async (req, res) => {
 // Start
 // ─────────────────────────────────────────────
 
-async function main() {
-  // Запускаем обновление cookies до старта сервера
-  await startCookieRefresh();
-
-  app.listen(PORT, () => {
-    console.log(`✅ Backend на порту ${PORT}`);
-    console.log(`   Cookies: ${getRefreshStatus().cookiesExist ? '✅ есть' : '❌ нет'}`);
-  });
-}
-
-main().catch(err => {
-  console.error('Fatal:', err);
-  process.exit(1);
-});
+app.listen(PORT, () => console.log(`✅ Backend на порту ${PORT}`));
