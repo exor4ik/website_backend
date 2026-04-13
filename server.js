@@ -5,13 +5,18 @@ const cors      = require('cors');
 const { spawn } = require('child_process');
 const rateLimit = require('express-rate-limit');
 
+const {
+  startCookieRefresh,
+  getCookiesFile,
+  getRefreshStatus,
+  refreshCookies,
+} = require('./cookies-refresh');
+
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
-// Render проксирует запросы — доверяем X-Forwarded-For
 app.set('trust proxy', 1);
 
-// yt-dlp ставится через pip3 в Build Command и доступен в PATH
 const YT_DLP_BIN = 'yt-dlp';
 
 // ─────────────────────────────────────────────
@@ -56,13 +61,16 @@ function getFormatParams(mode) {
   }
 }
 
-// Запускаем yt-dlp и получаем JSON через stdout
+function cookiesArgs() {
+  const f = getCookiesFile();
+  return f ? ['--cookies', f] : [];
+}
+
 function ytDlpJson(url) {
   return new Promise((resolve, reject) => {
-    const args = [url, '--dump-single-json', '--no-warnings', '--no-playlist', '--skip-download'];
+    const args = [url, '--dump-single-json', '--no-warnings', '--no-playlist', '--skip-download', ...cookiesArgs()];
     const proc = spawn(YT_DLP_BIN, args);
-    let out = '';
-    let err = '';
+    let out = '', err = '';
 
     proc.stdout.on('data', c => { out += c; });
     proc.stderr.on('data', c => { err += c; });
@@ -80,7 +88,26 @@ function ytDlpJson(url) {
 // ─────────────────────────────────────────────
 
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: Date.now(), uptime: Math.floor(process.uptime()) });
+  res.json({
+    status:    'ok',
+    timestamp: Date.now(),
+    uptime:    Math.floor(process.uptime()),
+    cookies:   getRefreshStatus(),
+  });
+});
+
+// ─────────────────────────────────────────────
+// POST /api/cookies/refresh  — ручной запуск обновления
+// Защищён простым токеном
+// ─────────────────────────────────────────────
+
+app.post('/api/cookies/refresh', async (req, res) => {
+  const token = req.headers['x-admin-token'];
+  if (!token || token !== process.env.ADMIN_TOKEN) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const ok = await refreshCookies();
+  res.json({ ok, status: getRefreshStatus() });
 });
 
 // ─────────────────────────────────────────────
@@ -122,7 +149,10 @@ app.get('/api/download', async (req, res) => {
     res.setHeader('Content-Type', mimeType);
     res.setHeader('Transfer-Encoding', 'chunked');
 
-    const ytProcess = spawn(YT_DLP_BIN, [url, '-f', format, '--no-playlist', '--no-warnings', '-o', '-']);
+    const ytProcess = spawn(YT_DLP_BIN, [
+      url, '-f', format, '--no-playlist', '--no-warnings', '-o', '-', ...cookiesArgs(),
+    ]);
+
     ytProcess.stdout.pipe(res);
     ytProcess.stderr.on('data', c => { const l = c.toString().trim(); if (l) console.log('[yt-dlp]', l); });
     ytProcess.on('error', err => {
@@ -141,4 +171,17 @@ app.get('/api/download', async (req, res) => {
 // Start
 // ─────────────────────────────────────────────
 
-app.listen(PORT, () => console.log(`✅ Backend на порту ${PORT}`));
+async function main() {
+  // Запускаем обновление cookies до старта сервера
+  await startCookieRefresh();
+
+  app.listen(PORT, () => {
+    console.log(`✅ Backend на порту ${PORT}`);
+    console.log(`   Cookies: ${getRefreshStatus().cookiesExist ? '✅ есть' : '❌ нет'}`);
+  });
+}
+
+main().catch(err => {
+  console.error('Fatal:', err);
+  process.exit(1);
+});
