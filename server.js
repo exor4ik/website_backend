@@ -58,11 +58,26 @@ function safeFilename(title = 'video', ext) {
 function getFormatParams(mode) {
   switch (mode) {
     case 'audio':
-      return { format: 'bestaudio[ext=m4a]/bestaudio', ext: 'm4a', mimeType: 'audio/mp4' };
+      // Сначала пробуем m4a, потом любой лучший аудио, потом просто лучший
+      return { 
+        format: 'bestaudio[ext=m4a]/bestaudio/best[ext=m4a]/best', 
+        ext: 'm4a', 
+        mimeType: 'audio/mp4',
+        postprocessor: '--extract-audio --audio-format mp3' // опционально: конвертация в mp3
+      };
     case 'video_max':
-      return { format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best', ext: 'mp4', mimeType: 'video/mp4' };
-    default:
-      return { format: 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best', ext: 'mp4', mimeType: 'video/mp4' };
+      // Лучшее видео + лучший аудио, или любой готовый комбо, или просто лучший
+      return { 
+        format: 'bv+ba/b[height<=2160]/best', 
+        ext: 'mp4', 
+        mimeType: 'video/mp4' 
+      };
+    default: // video до 1080p
+      return { 
+        format: 'bv[height<=1080]+ba/b[height<=1080]/best[height<=1080]/best', 
+        ext: 'mp4', 
+        mimeType: 'video/mp4' 
+      };
   }
 }
 
@@ -72,7 +87,7 @@ function cookiesArgs() {
 
 function ytDlpJson(url) {
   return new Promise((resolve, reject) => {
-    const args = [url, '--dump-single-json', '--no-warnings', '--no-playlist', '--skip-download', ...cookiesArgs()];
+    const args = [url, '-f', format, '--no-playlist', '-o', '-', '--verbose', ...cookiesArgs()];
     const proc = spawn(YT_DLP_BIN, args);
     let out = '', err = '';
 
