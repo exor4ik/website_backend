@@ -4,7 +4,6 @@
  * https://egornetwork.ru/youtube.html
  */
 
-require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
