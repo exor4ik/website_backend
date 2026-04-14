@@ -87,17 +87,30 @@ function cookiesArgs() {
 
 function ytDlpJson(url) {
   return new Promise((resolve, reject) => {
-    const args = [url, '-f', format, '--no-playlist', '-o', '-', '--verbose', ...cookiesArgs()];
+    // ✅ Правильные аргументы для получения мета-информации
+    const args = [
+      url, 
+      '--dump-single-json', 
+      '--no-warnings', 
+      '--no-playlist', 
+      '--skip-download', 
+      ...cookiesArgs()
+    ];
+    
     const proc = spawn(YT_DLP_BIN, args);
     let out = '', err = '';
 
     proc.stdout.on('data', c => { out += c; });
     proc.stderr.on('data', c => { err += c; });
+    
     proc.on('error', reject);
     proc.on('close', code => {
       if (code !== 0) return reject(new Error(err.trim() || `yt-dlp exited ${code}`));
-      try { resolve(JSON.parse(out)); }
-      catch { reject(new Error('Не удалось разобрать ответ yt-dlp')); }
+      try { 
+        resolve(JSON.parse(out)); 
+      } catch { 
+        reject(new Error('Не удалось разобрать ответ yt-dlp')); 
+      }
     });
   });
 }
