@@ -1,6 +1,6 @@
 {
   "name": "yt-downloader-backend",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Backend for EgorNetwork YouTube downloader",
   "main": "server.js",
   "scripts": {
