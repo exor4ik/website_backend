@@ -12,3 +12,13 @@
     "express-rate-limit": "^7.1.5"
   }
 }
+
+{
+  "scripts": {
+    "start": "node server.js",
+    "postinstall": "npm install -g yt-dlp@latest && yt-dlp -U"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
